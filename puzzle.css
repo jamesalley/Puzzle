@@ -1,0 +1,52 @@
+.yui3-puzzle-content {
+    position: relative;
+    background: gray;
+    overflow: hidden;
+    font-size: 0;
+    color: transparent;
+    -webkit-box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    box-sizing: border-box;
+}
+.yui3-puzzle .tile {
+    display: block;
+    position: absolute;
+    width: 135px;
+    height: 135px;
+    border: 1px solid transparent;
+    background: lightgray;
+    overflow: hidden;
+    color: transparent;
+    z-index: 0;
+    -webkit-box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    box-sizing: border-box;
+    cursor: pointer;
+    cursor: -webkit-grab;
+}
+    .yui3-puzzle .tile:active {
+        cursor: -webkit-grabbing;
+    }
+    .yui3-puzzle .dragGroup .tile {
+        position: static;
+        float: left;
+    }
+.yui3-puzzle .dragConstrainer {
+    -webkit-box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    box-sizing: border-box;
+    border: 0px solid yellow;
+    position: absolute;
+    pointer-events: none;
+}
+.yui3-puzzle .dragGroup {
+    -webkit-box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    box-sizing: border-box;
+    border: 0px solid pink;
+    opacity: .7;
+    z-index: 2;
+    position: absolute;
+    float: left;
+}
+

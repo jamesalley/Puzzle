@@ -1,0 +1,23 @@
+<html>
+<head>
+    <title>Puzzle</title>
+    <meta name="viewport" content="user-scalable=no" />
+<link rel="stylesheet" type="text/css" href="puzzle.css" />
+<script src="http://yui.yahooapis.com/3.4.1/build/yui/yui-min.js"></script>
+<script src="puzzle.js"></script>
+<script>
+YUI().use('puzzle', function (Y) {
+    var Puzzle = new Y.Puzzle({
+        boundingBox: '#puzzle',
+        image: 'earth.jpg',
+        imageDimension: 540,
+        tilesPerSide: 4
+    });
+    Puzzle.render();
+});
+</script>
+</head>
+<body>
+<div id="puzzle"></div>
+</body>
+</html>
