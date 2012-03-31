@@ -1,11 +1,5 @@
 YUI.add('puzzle', function(Y) {
 
-    // TO TO: NEXT ACTION:
-    // If move is over halfway to complete, the move should complete.
-    // If less than halfway, tile(s) should revert to original position.
-    // On multi touch devices, multiple touch points should not break the puzzle, rotate or zoom.
-    // Check for Android and IE compatibility
-
     var Node = Y.Node,
         supportsTouch = 'ontouchstart' in Y.config.win;
 
@@ -17,12 +11,25 @@ YUI.add('puzzle', function(Y) {
     Puzzle.NS = 'puzzle';
     Puzzle.TILE = '<div class="tile">tile</div>';
     Puzzle.FRAME = '<div class="puzzle-frame">Puzzle frame</div>';
-    Puzzle.DRAGCONSTRAINER = '<div class="dragConstrainer"></div>';
-    Puzzle.DRAGGROUP = '<div class="dragGroup"></div>';
+    Puzzle.DRAG_CONSTRAINER = '<div class="dragConstrainer"></div>';
+    Puzzle.DRAG_GROUP = '<div class="dragGroup"></div>';
     Puzzle.TRANSITION_DURATION = 0.25;
     Puzzle.TRANSITION_EASING = 'ease-out';
+    Puzzle.SNAP_TOLERANCE = 0.25; // what fraction of tileDimension to drag to avoid snapBack
     Puzzle.ATTRS = {
     };
+
+    // Array.indexOf shim for IE
+    if (!Array.indexOf) {
+        Array.prototype.indexOf = function(obj) {
+            for (var i = 0; i < this.length; i++) {
+                if (this[i] == obj) {
+                    return i;
+                }
+            }
+            return -1;
+        };
+    }
     
     Y.extend(Puzzle, Y.Widget, {
                 
@@ -34,12 +41,13 @@ YUI.add('puzzle', function(Y) {
             this.imageDimension = conf.imageDimension;
             this.tileDimension = (this.imageDimension/this.tilesPerSide);
             this.frameDimension = this.tileDimension*this.tilesPerSide;
-            this.dragConstrainer = Node.create(Puzzle.DRAGCONSTRAINER);
-            this.dragGroup = Node.create(Puzzle.DRAGGROUP);
+            this.dragConstrainer = Node.create(Puzzle.DRAG_CONSTRAINER);
+            this.dragGroup = Node.create(Puzzle.DRAG_GROUP);
             this.rowState = this._initRowState();
             this.colState = this._initColState();
+            this.moveInProgress = false;
             if (this.imageDimension % this.tilesPerSide !== 0 ) {
-                console.log('Puzzle: Configuration Error: imageDimension must be evenly divisible by tilesPerSide. Aborting.');
+                if (console) console.log('Puzzle: Configuration Error: imageDimension must be evenly divisible by tilesPerSide. Aborting.');
                 this.destroy();
             }
         },
@@ -88,15 +96,14 @@ YUI.add('puzzle', function(Y) {
             // A down, drag:start, drag:dragging, drag:end, up, sequence starts on a .tile, but
             // ends with a .dragGroup wrapped around the tile(s).
             this.puzzleFrame.delegate('gesturemovestart', Y.bind(this._handleGestureMoveStart, this), ".tile");
-            // TO DO: test if this behaves like this on Android of if it's an Y.UA.ios-specific quirk
-            // On iOS the gesturemoveend even is all we need to subscribe to, but on PC it's a little different.
+            // On iOS and Android the gesturemoveend even is all we need to subscribe to, but on PC it's a little different.
             if (supportsTouch) {
                 this.puzzleFrame.delegate('gesturemoveend', Y.bind(this._handleGestureMoveEnd, this), '.dragGroup');
             }
             else {
-                // this fires after drag sequence
+                // On PC, this fires after drag sequence:
                 Y.DD.DDM.on('drag:end', Y.bind(this._handleGestureMoveEnd, this));
-                // this fires after a simple click
+                // And this fires after a simple click:
                 Y.DD.DDM.on('drag:mouseup', Y.bind(this._handleGestureMoveEnd, this));
             }
             // set up constrained drag delgation
@@ -149,26 +156,56 @@ YUI.add('puzzle', function(Y) {
         },
 
         _handleGestureMoveStart: function(e) {
+            if (this.moveInProgress) return;
             this.tileId = e.currentTarget.getAttribute('puzzle-tile-id');
             this.row = e.currentTarget.getAttribute('row');
             this.col = e.currentTarget.getAttribute('col');
             this.emptyRowSlot = this._checkForEmptySlot('row', this.row);
             this.emptyColSlot = this._checkForEmptySlot('col', this.col);
-            this.moveAxis = (this.emptyRowSlot !== false) ? 'x':'y';
-            this.dragConstrainerMultiple = (this.moveAxis==='x') ? (Math.abs(this.col-this.emptyRowSlot)+1):(Math.abs(this.row-this.emptyColSlot)+1);
-            this.dragGroupMultiple = (this.moveAxis==='x') ? (Math.abs(this.col-this.emptyRowSlot)):(Math.abs(this.row-this.emptyColSlot));
-            this.numberOfTilesToMove = this.dragGroupMultiple;
-            this.moveDirectionBool = (this.moveAxis==='x') ? ((this.col-this.emptyRowSlot) > 0):((this.row-this.emptyColSlot) > 0);
-            this.moveDirection = (this.moveDirectionBool) ? -1 : 1;
             if (this.emptyRowSlot === false && this.emptyColSlot === false) {
-                console.log('No move possible');
+                if (console) console.log('No move possible');
                 return;
             }
+            this.moveIsHorizontal = (this.emptyRowSlot !== false);
+            this.moveAxis = (this.moveIsHorizontal) ? 'x':'y';
+            this.dragConstrainerMultiple = (this.moveIsHorizontal) ? (Math.abs(this.col-this.emptyRowSlot)+1):(Math.abs(this.row-this.emptyColSlot)+1);
+            this.dragGroupMultiple = (this.moveIsHorizontal) ? (Math.abs(this.col-this.emptyRowSlot)):(Math.abs(this.row-this.emptyColSlot));
+            this.numberOfTilesToMove = this.dragGroupMultiple;
+            this.moveDirectionBool = (this.moveIsHorizontal) ? ((this.col-this.emptyRowSlot) > 0):((this.row-this.emptyColSlot) > 0);
+            this.moveDirection = (this.moveDirectionBool) ? -1 : 1;
             this._setUpDragConstrainerAndDragGroup();
             this._moveTilesToDragGroup();
         },
 
         _handleGestureMoveEnd: function(e) {
+            // What's the delta between the dragStart and the dragEnd?
+            var dragStartVal = (this.moveIsHorizontal) ? this.dragGroupLeftBeforeDrag : this.dragGroupTopBeforeDrag,
+                dragEndVal = (this.moveIsHorizontal) ? this.dragGroup.getStyle('left') : this.dragGroup.getStyle('top');
+            dragStartVal = parseInt(dragStartVal, 10);
+            dragEndVal = parseInt(dragEndVal, 10);
+            if (Math.abs(dragEndVal - dragStartVal) < this.tileDimension*Puzzle.SNAP_TOLERANCE) {
+                this._snapBack();
+            }
+            else this._snapForward();
+        },
+
+        _snapBack: function() {
+            // Pretty simple; just return to original position and do a little clean-up.
+            Y.one(this.dragGroup).transition({
+                easing: Puzzle.TRANSITION_EASING,
+                duration: Puzzle.TRANSITION_DURATION,
+                left: this.dragGroupLeftBeforeDrag,
+                top: this.dragGroupTopBeforeDrag
+            }, Y.bind(this._snapBackCleanup, this));
+        },
+
+        _snapBackCleanup: function() {
+            this._returnTilesToPuzzleFrame();
+            this._resetDragConstrainerAndDragGroup();
+            this.moveInProgress = false;
+        },
+
+        _snapForward: function() {
             // If this.moveDirection is -1, then we want to move to the same left or top value that the empty slot has.
             // If this.moveDirection is +1, then we want to move to the same right or bottom value that the empty slot has.
             var emptySlotLeft = this.emptyRowSlot*this.tileDimension,
@@ -181,7 +218,7 @@ YUI.add('puzzle', function(Y) {
                     easing: Puzzle.TRANSITION_EASING,
                     duration: Puzzle.TRANSITION_DURATION,
                     left: emptySlotLeft + 'px'
-                }, Y.bind(this._postDragCleanup, this));
+                }, Y.bind(this._snapForwardCleanup, this));
             }
             else if (this.moveDirection === 1 && this.emptyRowSlot > -1 && this.emptyColSlot === false) {
                 // sliding right
@@ -189,7 +226,7 @@ YUI.add('puzzle', function(Y) {
                     easing: Puzzle.TRANSITION_EASING,
                     duration: Puzzle.TRANSITION_DURATION,
                     left: (emptySlotLeft - (dragGroupWidth - this.tileDimension)) + 'px'
-                }, Y.bind(this._postDragCleanup, this));
+                }, Y.bind(this._snapForwardCleanup, this));
             }
             else if (this.moveDirection === -1 && this.emptyColSlot > -1) {
                 // sliding up
@@ -197,7 +234,7 @@ YUI.add('puzzle', function(Y) {
                     easing: Puzzle.TRANSITION_EASING,
                     duration: Puzzle.TRANSITION_DURATION,
                     top: emptySlotTop + 'px'
-                }, Y.bind(this._postDragCleanup, this));
+                }, Y.bind(this._snapForwardCleanup, this));
             }
             else if (this.moveDirection === 1 && this.emptyColSlot > -1) {
                 // sliding down
@@ -205,14 +242,15 @@ YUI.add('puzzle', function(Y) {
                     easing: Puzzle.TRANSITION_EASING,
                     duration: Puzzle.TRANSITION_DURATION,
                     top: (emptySlotTop - (dragGroupHeight - this.tileDimension)) + 'px'
-                }, Y.bind(this._postDragCleanup, this));
+                }, Y.bind(this._snapForwardCleanup, this));
             }
         },
 
-        _postDragCleanup: function() {
+        _snapForwardCleanup: function() {
             this._updateState();
             this._returnTilesToPuzzleFrame();
             this._resetDragConstrainerAndDragGroup();
+            this.moveInProgress = false;
         },
 
         _resetDragConstrainerAndDragGroup: function() {
@@ -231,7 +269,7 @@ YUI.add('puzzle', function(Y) {
         },
 
         _setUpDragConstrainerAndDragGroup: function() {
-            if (this.moveAxis === 'x') {
+            if (this.moveIsHorizontal) {
                 this.dragConstrainer.setStyles({
                     'width': (this.dragConstrainerMultiple*this.tileDimension),
                     'height': this.tileDimension,
@@ -258,6 +296,8 @@ YUI.add('puzzle', function(Y) {
                     'top': (this.moveDirection === 1) ? (this.tileDimension*this.row) : ((this.tileDimension*this.emptyColSlot) + this.tileDimension)
                 });
             }
+            this.dragGroupLeftBeforeDrag = this.dragGroup.getStyle('left');
+            this.dragGroupTopBeforeDrag = this.dragGroup.getStyle('top');
         },
 
         _returnTilesToPuzzleFrame: function() {
@@ -271,7 +311,7 @@ YUI.add('puzzle', function(Y) {
             while (this.dragGroup.hasChildNodes()) {
                 tile = this.dragGroup.one('.tile');
                 tileId = parseInt(tile.getAttribute('puzzle-tile-id'), 10);
-                if (this.moveAxis === 'x') {
+                if (this.moveIsHorizontal) {
                     idx = this.rowState[this.row].indexOf(tileId);
                     tile.setAttribute('col', idx);
                 }
@@ -288,7 +328,7 @@ YUI.add('puzzle', function(Y) {
             // Move the tiles out of the puzzle Frame and into the constrained dragGroup
             var i,
                 tile;
-            if (this.moveAxis === 'x') {
+            if (this.moveIsHorizontal) {
                 if (this.moveDirection === -1) {
                     for (i = this.col; i > -1; i--) {
                         tile = this.rowState[this.row][i];
@@ -329,7 +369,6 @@ YUI.add('puzzle', function(Y) {
         },
 
         _setTilePosition: function(tile, axis) {
-            // TO DO: add animation here
             var idx;
             if (axis === 'x') {
                 idx = tile.getAttribute('col');
@@ -344,7 +383,7 @@ YUI.add('puzzle', function(Y) {
         _updateState: function() {
             // At the end of a move we need to adjust the row or col state as appropriate.
             var i;
-            if (this.moveAxis === 'x') {
+            if (this.moveIsHorizontal) {
                 // Splice out the empty slot. Start at the emptyRowSlot, and go one space.
                 this.rowState[this.row].splice(this.emptyRowSlot, 1);
                 // Splice it back in to its new position by starting at the position of the
@@ -387,5 +426,5 @@ YUI.add('puzzle', function(Y) {
     Y.Puzzle = Puzzle;
 
 }, '1.0.0', {
-    requires: ['widget', 'dd-drag', 'dd-delegate', 'dd-constrain', 'event-gestures', 'anim', 'transition']
+    requires: ['widget', 'dd-drag', 'dd-delegate', 'dd-constrain', 'event-gestures', 'transition']
 });
