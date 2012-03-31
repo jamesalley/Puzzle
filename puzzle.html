@@ -13,10 +13,18 @@ YUI().use('puzzle', function (Y) {
         imageDimension: 540,
         tilesPerSide: 4
     }).render();
+
+    var Puzzle2 = new Y.Puzzle({
+        boundingBox: '#puzzle2',
+        image: 'spider.jpg',
+        imageDimension: 640,
+        tilesPerSide: 10
+    }).render();
 });
 </script>
 </head>
 <body>
 <div id="puzzle"></div>
+<div id="puzzle2"></div>
 </body>
 </html>
