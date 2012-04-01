@@ -199,8 +199,8 @@ YUI.add('puzzle', function(Y) {
                 this._error('Puzzle: No move possible');
                 return;
             }
-
             // Move is possible, set up a few more values
+            this.set('moveInProgress', true);
             this.set('moveIsHorizontal', emptyRowSlot !== false);
             var moveIsHorizontal = this.get('moveIsHorizontal');
             this.set('moveAxis', moveIsHorizontal ? 'x':'y');
